@@ -15,6 +15,8 @@ type UserStore interface {
 	GetUserByID(context.Context, string) (*types.User, error)
 	GetUsers(context.Context) ([]*types.User, error)
 	CreateUser(context.Context, *types.User) (*types.User, error)
+	DeleteUser(context.Context, string) error
+	PutUser(context.Context, string, types.UpdateUserParams) error
 }
 
 type MongoUserStore struct {
@@ -22,6 +24,46 @@ type MongoUserStore struct {
 	dbname string
 	coll   *mongo.Collection
 	logger *slog.Logger
+}
+
+func (s *MongoUserStore) DeleteUser(ctx context.Context, id string) error {
+	userId, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		s.logger.Error(err.Error())
+		return err
+	}
+
+	res, err := s.coll.DeleteOne(ctx, bson.D{{"_id", userId}})
+	if err != nil {
+		s.logger.Error(err.Error())
+		return err
+	}
+	if res.DeletedCount != 1 {
+		s.logger.Error("Couldn't find user with id: ", id)
+		return err
+	}
+	s.logger.Info("Successfully deleted user wit id: ", id)
+	return nil
+}
+
+func (s *MongoUserStore) PutUser(ctx context.Context, id string, params types.UpdateUserParams) error {
+	oid, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		s.logger.Error(err.Error())
+		return err
+	}
+	filter := bson.D{{"_id", oid}}
+	values := params.ToBSON()
+	update := bson.D{{"$set", values}}
+	res, err := s.coll.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		s.logger.Error("did not update record")
+		return err
+	}
+	return nil
 }
 
 func (s *MongoUserStore) CreateUser(ctx context.Context, user *types.User) (*types.User, error) {
